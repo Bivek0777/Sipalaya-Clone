@@ -1,4 +1,4 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import EsewaPaymentButton from "../components/EsewaPaymentButton";
 import KhaltiPaymentButton from "../components/KhaltiPaymentButton";
@@ -9,12 +9,20 @@ import { AuthContext } from "../context/AuthContext";
 export default function Payment() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useContext(AuthContext);
+  const { user, loading: authLoading } = useContext(AuthContext);
   const amount = Number(searchParams.get("amount"));
   const productId = searchParams.get("productId");
   const method = searchParams.get("method") || "stripe";
+  const plan = searchParams.get("plan") || "full";
+  const totalAmount = Number(searchParams.get("total")) || amount;
   const admissionId = searchParams.get("admissionId");
   const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    }
+  }, [authLoading, user, navigate]);
 
   // Save payment result to backend and update enrollment
   const handlePaymentSuccess = async (methodUsed, transactionId) => {
@@ -64,9 +72,26 @@ export default function Payment() {
               <p className="text-slate-500 text-sm">Securely process your transaction to confirm your enrollment.</p>
             </div>
 
-            <div className="bg-slate-50 rounded-xl p-5 border border-slate-100 flex justify-between items-center mb-8">
-              <span className="text-slate-600 font-medium">Total Amount Due</span>
-              <span className="text-2xl font-bold text-slate-900">Rs. {amount.toLocaleString()}</span>
+            <div className="bg-slate-50 rounded-xl p-5 border border-slate-100 space-y-3 mb-8">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-600 font-medium">Amount Due Now</span>
+                <span className="text-2xl font-bold text-slate-900">Rs. {amount.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm text-slate-500">
+                <span>Payment Plan</span>
+                <span>{plan === 'full' ? 'Full Payment (5% discount)' : 'Installment (50% now)'}</span>
+              </div>
+              {plan === 'installment' && (
+                <div className="flex justify-between items-center text-sm text-slate-500">
+                  <span>Remaining</span>
+                  <span>Rs. {remaining.toLocaleString()}</span>
+                </div>
+              )}
+              {totalAmount !== amount && (
+                <div className="rounded-xl bg-slate-100 p-3 text-xs text-slate-600">
+                  Total course fee: Rs. {totalAmount.toLocaleString()}
+                </div>
+              )}
             </div>
 
             {status === "success" && (

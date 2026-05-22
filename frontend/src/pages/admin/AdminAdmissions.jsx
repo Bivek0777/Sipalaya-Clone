@@ -8,6 +8,7 @@ const EMPTY = { fullName: '', email: '', phone: '', course: '', paymentPreferenc
 
 const statusColor = s => ({ pending: 'bg-amber-100 text-amber-700', approved: 'bg-green-100 text-green-700', rejected: 'bg-red-100 text-red-700' }[s] || 'bg-slate-100 text-slate-600');
 const planColor = p => p === 'full' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700';
+const payStatusColor = s => ({ paid: 'bg-emerald-100 text-emerald-700', unpaid: 'bg-slate-100 text-slate-600', failed: 'bg-red-100 text-red-700' }[s] || 'bg-slate-100 text-slate-600');
 
 export default function AdminAdmissions({ admissions, courses, token, onRefresh }) {
   const [search, setSearch] = useState('');
@@ -111,14 +112,15 @@ export default function AdminAdmissions({ admissions, courses, token, onRefresh 
                 <th className="px-5 py-3.5 font-semibold">Student</th>
                 <th className="px-5 py-3.5 font-semibold">Course</th>
                 <th className="px-5 py-3.5 font-semibold">Payment</th>
-                <th className="px-5 py-3.5 font-semibold">Status</th>
+                <th className="px-5 py-3.5 font-semibold">Pay Status</th>
+                <th className="px-5 py-3.5 font-semibold">Admission</th>
                 <th className="px-5 py-3.5 font-semibold">Date</th>
                 <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="py-12 text-center text-slate-400">No admissions found.</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-slate-400">No admissions found.</td></tr>
               )}
               {filtered.map(a => (
                 <tr key={a._id} className="hover:bg-slate-50 transition-colors">
@@ -131,6 +133,12 @@ export default function AdminAdmissions({ admissions, courses, token, onRefresh 
                   <td className="px-5 py-3.5">
                     <span className={`block px-2 py-0.5 rounded-full text-xs font-semibold mb-1 ${planColor(a.paymentPlan)}`}>{a.paymentPlan}</span>
                     <span className="text-xs text-slate-400 uppercase">{a.paymentPreference}</span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${payStatusColor(a.paymentStatus || 'unpaid')}`}>
+                      {(a.paymentStatus || 'unpaid').toUpperCase()}
+                    </span>
+                    {a.paidAt && <p className="text-[10px] text-slate-400 mt-1">{new Date(a.paidAt).toLocaleDateString()}</p>}
                   </td>
                   <td className="px-5 py-3.5">
                     <select value={a.status} onChange={e => quickStatus(a, e.target.value)}

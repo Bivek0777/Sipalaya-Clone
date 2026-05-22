@@ -10,7 +10,7 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (token) {
-      // Decode JWT token logic (mocked by extracting payload for simplicity without full jwt-decode library)
+      
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         setUser(payload);
@@ -37,9 +37,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (name, email, password, role = 'student') => {
+  const register = async (name, email, password, phone, address, role = 'student') => {
     try {
-      const response = await axios.post('/api/auth/register', { name, email, password, role });
+      const response = await axios.post('/api/auth/register', { name, email, password, phone, address, role });
       const { token, user: userData } = response.data;
       localStorage.setItem('token', token);
       setToken(token);

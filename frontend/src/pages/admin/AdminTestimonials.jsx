@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, Pencil, Trash2, X, Search, Quote } from 'lucide-react';
 import axios from 'axios';
 
-const API = '/api/admin';
+const API = '/api/testimonials';
 
 const EMPTY = { name: '', role: '', image: '', content: '', rating: 5 };
 

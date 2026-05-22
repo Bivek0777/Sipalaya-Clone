@@ -10,6 +10,7 @@ const Admission = () => {
   const [searchParams] = useSearchParams();
   const urlCourseId = searchParams.get('courseId') || '';
   const urlAmount = searchParams.get('amount') || '';
+  const skipRegister = searchParams.get('skipRegister') === 'true';
   const [courses, setCourses] = useState([]);
 
   const [formData, setFormData] = useState(() => {
@@ -37,6 +38,17 @@ const Admission = () => {
     return defaultData;
   });
 
+  const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+
+  const currentCourseId = formData.course || urlCourseId;
+  const selectedCourse = courses.find(c => c._id === currentCourseId) || null;
+  const courseFee = Number(urlAmount || selectedCourse?.fee || 0);
+  const amountToPay = courseFee > 0
+    ? (formData.paymentPlan === 'full' ? Math.round(courseFee * 0.95) : Math.ceil(courseFee * 0.5))
+    : 0;
+
   // Persist form data to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('admission_form_data', JSON.stringify(formData));
@@ -54,22 +66,155 @@ const Admission = () => {
     fetchCourses();
   }, []);
 
+  useEffect(() => {
+    if (user && skipRegister) {
+      setFormData(prev => ({
+        ...prev,
+        fullName: prev.fullName || user.name || '',
+        email: prev.email || user.email || '',
+        phone: prev.phone || user.phone || prev.phone || '',
+        course: urlCourseId || prev.course || ''
+      }));
+    }
+  }, [user, skipRegister, urlCourseId]);
+
+  useEffect(() => {
+    if (urlCourseId && !formData.course) {
+      setFormData(prev => ({ ...prev, course: urlCourseId }));
+    }
+  }, [urlCourseId, formData.course]);
+
+  const getFieldError = (name, value) => {
+    let errorMsg = '';
+    
+    if (name === 'fullName') {
+      if (!value.trim()) errorMsg = 'Full name is required';
+      else if (value.trim().length < 3) errorMsg = 'Full name must be at least 3 characters long';
+    }
+    
+    if (name === 'email') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!value) errorMsg = 'Email address is required';
+      else if (!emailRegex.test(value)) errorMsg = 'Please enter a valid email address';
+    }
+    
+    if (name === 'phone') {
+      const normalized = value.replace(/[^0-9]/g, '');
+      const nepalNumber = normalized.replace(/^977/, '');
+      const phoneRegex = /^9\d{9}$/;
+      if (!value) {
+        errorMsg = 'Phone number is required';
+      } else if (!phoneRegex.test(nepalNumber)) {
+        errorMsg = 'Enter a valid Nepali phone number, e.g. 98XXXXXXXX';
+      }
+    }
+
+    if (name === 'course' && !value) {
+      errorMsg = 'Please select a course to enroll';
+    }
+
+    if (name === 'paymentPreference' && !value) {
+      errorMsg = 'Please select a payment gateway';
+    }
+
+    return errorMsg;
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    const errorMsg = getFieldError(name, value);
+    setErrors(prev => ({ ...prev, [name]: errorMsg }));
+  };
+
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
 
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError('');
+
+    const fieldsToValidate = ['course', 'paymentPreference', 'paymentPlan', 'phone'];
+    if (!skipRegister || !user) {
+      fieldsToValidate.unshift('email', 'fullName');
+    }
+
+    const validationErrors = {};
+    fieldsToValidate.forEach(key => {
+      const value = key === 'course' ? currentCourseId : formData[key];
+      const errorMsg = getFieldError(key, value || '');
+      if (errorMsg) {
+        validationErrors[key] = errorMsg;
+      }
+    });
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(prev => ({ ...prev, ...validationErrors }));
+      const firstError = validationErrors.email || validationErrors.fullName || validationErrors.phone || validationErrors.course || validationErrors.paymentPreference || 'Please complete all required fields before proceeding.';
+      setSubmitError(firstError);
+      return;
+    }
+
+    if (!currentCourseId) {
+      setSubmitError('Please select a course before proceeding to payment.');
+      return;
+    }
+
+    if (!amountToPay || amountToPay <= 0) {
+      setSubmitError('Unable to calculate the payment amount. Please select a valid course and try again.');
+      return;
+    }
+
+    if (user && user.enrolledCourses) {
+      const alreadyEnrolled = user.enrolledCourses.some(c => {
+        const cId = c.course?._id || c.course;
+        return cId && cId.toString() === currentCourseId.toString();
+      });
+      if (alreadyEnrolled) {
+        alert('You are already enrolled in this course! You cannot enroll again.');
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
     try {
-      const response = await axios.post('/api/admissions', formData);
-      const amountToPay = urlAmount || (courses.find(c => c._id === formData.course)?.fee || 0);
-      navigate(`/pay?amount=${amountToPay}&productId=${formData.course}&method=${formData.paymentPreference}&admissionId=${response.data.data._id}`);
+      const payload = {
+        ...formData,
+        fullName: user?.name || formData.fullName,
+        email: user?.email || formData.email,
+        course: currentCourseId,
+      };
+
+      if (user) {
+        payload.user = user._id || user.id;
+      }
+
+      const response = await axios.post('/api/admissions', payload);
+      navigate(`/pay?amount=${amountToPay}&productId=${payload.course}&method=${formData.paymentPreference}&admissionId=${response.data.data._id}&plan=${formData.paymentPlan}&total=${courseFee}`);
+      localStorage.removeItem('admission_form_data');
     } catch (error) {
       console.error('Error submitting admission:', error);
-      alert('Failed to submit admission.');
+      setSubmitError(error.response?.data?.message || 'Failed to submit admission.');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const getInputClass = (name) => {
+    const baseClass = "w-full px-4 py-3 rounded-lg border outline-none transition-all focus:ring-2 focus:ring-indigo-500/20";
+    if (errors[name]) {
+      return `${baseClass} border-red-400 focus:border-red-500 bg-red-50/10 focus:ring-red-200`;
+    }
+    if (formData[name] && !errors[name]) {
+      return `${baseClass} border-emerald-400 focus:border-emerald-500 focus:ring-emerald-100`;
+    }
+    return `${baseClass} border-slate-300 focus:border-indigo-500`;
   };
 
   if (user && (user.role === 'instructor' || user.role === 'admin')) {
@@ -129,31 +274,95 @@ const Admission = () => {
           {/* Registration Form */}
           <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-slate-200 p-8 md:p-10">
             <h2 className="text-2xl font-bold text-slate-900 mb-6">Online Registration</h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Full Name</label>
-                  <input required type="text" name="fullName" value={formData.fullName} onChange={handleChange} className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="John Doe" />
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+              {submitError && (
+                <div className="rounded-3xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+                  {submitError}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Phone Number</label>
-                  <input required type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="+977 98XXXXXXXX" />
+              )}
+              {skipRegister && user ? (
+                <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-5 mb-6">
+                  <p className="text-sm font-semibold text-indigo-700 mb-2">Authenticated Checkout</p>
+                  <p className="text-slate-600">You're logged in as <span className="font-semibold text-slate-900">{user.name}</span> ({user.email}).</p>
+                  <p className="text-slate-500 mt-2">Your account details will be used for enrollment, and payment will grant instant access.</p>
+                  {!user.phone && (
+                    <div className="mt-6">
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Phone Number</label>
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        className={getInputClass('phone')}
+                        placeholder="98XXXXXXXX"
+                      />
+                      {errors.phone && <p className="mt-1.5 text-xs font-semibold text-red-600">{errors.phone}</p>}
+                    </div>
+                  )}
                 </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Email Address</label>
-                <input required type="email" name="email" value={formData.email} onChange={handleChange} className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="john@example.com" />
-              </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Full Name</label>
+                      <input 
+                        type="text" 
+                        name="fullName" 
+                        value={formData.fullName} 
+                        onChange={handleChange} 
+                        onBlur={handleBlur}
+                        className={getInputClass('fullName')}
+                        placeholder="John Doe" 
+                      />
+                      {errors.fullName && <p className="mt-1.5 text-xs font-semibold text-red-600">{errors.fullName}</p>}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Phone Number</label>
+                      <input 
+                        type="tel" 
+                        name="phone" 
+                        value={formData.phone} 
+                        onChange={handleChange} 
+                        onBlur={handleBlur}
+                        className={getInputClass('phone')}
+                        placeholder="98XXXXXXXX" 
+                      />
+                      {errors.phone && <p className="mt-1.5 text-xs font-semibold text-red-600">{errors.phone}</p>}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Email Address</label>
+                    <input 
+                      type="email" 
+                      name="email" 
+                      value={formData.email} 
+                      onChange={handleChange} 
+                      onBlur={handleBlur}
+                      className={getInputClass('email')}
+                      placeholder="john@example.com" 
+                    />
+                    {errors.email && <p className="mt-1.5 text-xs font-semibold text-red-600">{errors.email}</p>}
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Select Course</label>
-                <select required name="course" value={formData.course} onChange={handleChange} className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white">
+                <select 
+                  name="course" 
+                  value={formData.course} 
+                  onChange={handleChange} 
+                  onBlur={handleBlur}
+                  className={getInputClass('course')}
+                >
                   <option value="" disabled>Select a course...</option>
                   {courses.map(c => (
                     <option key={c._id} value={c._id}>{c.title}</option>
                   ))}
                 </select>
+                {errors.course && <p className="mt-1.5 text-xs font-semibold text-red-600">{errors.course}</p>}
               </div>
 
               {/* Payment Gateway */}
@@ -161,25 +370,26 @@ const Admission = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-3">Select Payment Gateway</label>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <label className={`cursor-pointer border rounded-xl p-4 flex flex-col items-center justify-center transition-all ${formData.paymentPreference === 'esewa' ? 'border-green-500 bg-green-50 ring-2 ring-green-500/20' : 'border-slate-200 hover:border-green-300'}`}>
-                    <input type="radio" name="paymentPreference" value="esewa" className="sr-only" onChange={handleChange} required />
+                    <input type="radio" name="paymentPreference" value="esewa" className="sr-only" onChange={(e) => { handleChange(e); setErrors(prev => ({ ...prev, paymentPreference: '' })); }} required />
                     <img src="https://esewa.com.np/common/images/esewa_logo.png" alt="eSewa" className="h-8 object-contain mb-2" />
                     <span className="text-sm font-medium text-slate-700">eSewa</span>
                   </label>
                   
                   <label className={`cursor-pointer border rounded-xl p-4 flex flex-col items-center justify-center transition-all ${formData.paymentPreference === 'khalti' ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500/20' : 'border-slate-200 hover:border-purple-300'}`}>
-                    <input type="radio" name="paymentPreference" value="khalti" className="sr-only" onChange={handleChange} required />
+                    <input type="radio" name="paymentPreference" value="khalti" className="sr-only" onChange={(e) => { handleChange(e); setErrors(prev => ({ ...prev, paymentPreference: '' })); }} required />
                     <img src="https://khalti.com/static/images/logo.png" alt="Khalti" className="h-8 object-contain mb-2" />
                     <span className="text-sm font-medium text-slate-700">Khalti</span>
                   </label>
 
                   <label className={`cursor-pointer border rounded-xl p-4 flex flex-col items-center justify-center transition-all ${formData.paymentPreference === 'stripe' ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500/20' : 'border-slate-200 hover:border-indigo-300'}`}>
-                    <input type="radio" name="paymentPreference" value="stripe" className="sr-only" onChange={handleChange} required />
+                    <input type="radio" name="paymentPreference" value="stripe" className="sr-only" onChange={(e) => { handleChange(e); setErrors(prev => ({ ...prev, paymentPreference: '' })); }} required />
                     <div className="h-8 flex items-center text-indigo-600 mb-2">
                       <CreditCard size={32} />
                     </div>
                     <span className="text-sm font-medium text-slate-700">Card / Stripe</span>
                   </label>
                 </div>
+                {errors.paymentPreference && <p className="mt-2 text-xs font-semibold text-red-600">{errors.paymentPreference}</p>}
               </div>
 
               {/* Payment Plan */}
@@ -200,8 +410,12 @@ const Admission = () => {
                 </div>
               </div>
 
-              <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 flex justify-center items-center">
-                Proceed to Payment <ChevronRight size={20} className="ml-2" />
+              <button 
+                type="submit" 
+                disabled={isSubmitting}
+                className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 flex justify-center items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? 'Processing...' : 'Proceed to Payment'} <ChevronRight size={20} className="ml-2" />
               </button>
             </form>
           </div>
@@ -216,7 +430,16 @@ const Admission = () => {
               <p className="text-slate-300 text-sm mb-6 leading-relaxed">
                 We use industry-standard encryption to protect your payment details. You can pay using local digital wallets or international credit/debit cards.
               </p>
-              
+              <div className="bg-slate-800 rounded-3xl p-4 mb-6 border border-slate-700">
+                <p className="text-sm text-slate-400 mb-2">Selected course fee</p>
+                <div className="flex justify-between items-center text-white font-bold mb-2">
+                  <span>{selectedCourse?.title || 'Course selected at checkout'}</span>
+                  <span>Rs. {courseFee.toLocaleString()}</span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  {formData.paymentPlan === 'full' ? 'Full payment includes a 5% discount.' : 'Installment plan collects 50% now and 50% later.'}
+                </p>
+              </div>
               <div className="space-y-4">
                 <div className="flex items-start">
                   <CheckCircle2 size={18} className="text-indigo-400 mr-2 flex-shrink-0 mt-0.5" />

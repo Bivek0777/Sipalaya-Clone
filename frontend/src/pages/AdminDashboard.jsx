@@ -4,18 +4,21 @@ import {
   LayoutDashboard, Users, BookOpen, ClipboardList,
   MessageSquare, BarChart3, LogOut, Menu, X,
   TrendingUp, DollarSign, Activity, Bell, FileText, Mail,
-  RefreshCw
+  RefreshCw, Award, GraduationCap
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import AdminStudents from './admin/AdminStudents';
+import AdminInstructors from './admin/AdminInstructors';
 import AdminCourses from './admin/AdminCourses';
 import AdminAdmissions from './admin/AdminAdmissions';
 import AdminDemos from './admin/AdminDemos';
 import AdminContacts from './admin/AdminContacts';
-import AdminReports from './admin/AdminReports';
 import AdminJobs from './admin/AdminJobs';
 import AdminBlogs from './admin/AdminBlogs';
 import AdminTestimonials from './admin/AdminTestimonials';
+import AdminReviews from './admin/AdminReviews';
+import AdminAssignments from './admin/AdminAssignments';
+import AdminReports from './admin/AdminReports';
 import { Quote } from 'lucide-react';
 
 const API = '/api/admin';
@@ -23,14 +26,16 @@ const API = '/api/admin';
 const NAV = [
   { id: 'dashboard', label: 'Dashboard',   icon: LayoutDashboard },
   { id: 'students',  label: 'Users',       icon: Users },
+  { id: 'instructors', label: 'Instructors', icon: GraduationCap },
   { id: 'courses',   label: 'Courses',     icon: BookOpen },
+  { id: 'assignments', label: 'Assignments', icon: Award },
   { id: 'admissions',label: 'Admissions',  icon: ClipboardList },
   { id: 'demos',     label: 'Demo Requests',icon: MessageSquare },
   { id: 'contacts',  label: 'Messages',     icon: Mail },
   { id: 'jobs',      label: 'Jobs',        icon: Activity },
   { id: 'blogs',     label: 'Blogs',       icon: FileText },
   { id: 'testimonials', label: 'Success Stories', icon: Quote },
-  { id: 'reports',   label: 'Reports',     icon: BarChart3 },
+  { id: 'reviews',   label: 'Reviews',     icon: MessageSquare },
 ];
 
 export default function AdminDashboard() {
@@ -46,6 +51,8 @@ export default function AdminDashboard() {
   const [jobs,       setJobs]       = useState([]);
   const [blogs,      setBlogs]      = useState([]);
   const [testimonials, setTestimonials] = useState([]);
+  const [reviews,    setReviews]    = useState([]);
+  const [financialReport, setFinancialReport] = useState({ total: 0, count: 0, payments: [], gatewayBreakdown: {}, monthlyRevenue: [], courseRevenue: [] });
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
   const [notifOpen,  setNotifOpen]  = useState(false);
@@ -82,7 +89,9 @@ export default function AdminDashboard() {
         fetchModule('/demos', setDemos),
         fetchModule('/jobs', setJobs),
         fetchModule('/blogs', setBlogs),
-        fetchModule('/testimonials', setTestimonials),
+        fetchDirect('/api/testimonials', setTestimonials),
+        fetchDirect('/api/reviews', setReviews),
+        fetchModule('/financial-report', setFinancialReport),
         fetchDirect('/api/contact', setContacts)
       ]);
     } catch (e) {
@@ -375,10 +384,10 @@ export default function AdminDashboard() {
                       <div>
                         <p className="text-indigo-200 text-sm font-medium mb-1">Total Estimated Revenue</p>
                         <p className="text-4xl font-extrabold">
-                          Rs. {(admissions || []).reduce((acc, adm) => {
+                          Rs. {((financialReport.total || (admissions || []).reduce((acc, adm) => {
                             const c = (courses || []).find(c => c._id === adm.course || c.title === adm.course);
                             return acc + (c ? Number(c.fee) : 15000);
-                          }, 0).toLocaleString()}
+                          }, 0))).toLocaleString()}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 bg-white/20 px-4 py-3 rounded-xl">
@@ -450,6 +459,17 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                   </div>
+
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-xl font-bold text-slate-900">Reports</h2>
+                        <p className="text-sm text-slate-500">All report metrics and analytics are now visible in the dashboard.</p>
+                      </div>
+                    </div>
+                    <AdminReports admissions={admissions} courses={courses} users={users} financialReport={financialReport} />
+                  </div>
+
                 </div>
               )}
 
@@ -458,9 +478,19 @@ export default function AdminDashboard() {
                 <AdminStudents users={users} token={token} onRefresh={fetchAll} />
               )}
 
+              {/* ── INSTRUCTORS TAB ─────────────────────────────────── */}
+              {tab === 'instructors' && (
+                <AdminInstructors token={token} courses={courses} onRefresh={fetchAll} />
+              )}
+
               {/* ── COURSES TAB ────────────────────────────────────── */}
               {tab === 'courses' && (
                 <AdminCourses courses={courses} token={token} onRefresh={fetchAll} />
+              )}
+
+              {/* ── ASSIGNMENTS TAB ─────────────────────────────────── */}
+              {tab === 'assignments' && (
+                <AdminAssignments token={token} />
               )}
 
               {/* ── ADMISSIONS TAB ─────────────────────────────────── */}
@@ -493,10 +523,11 @@ export default function AdminDashboard() {
                 <AdminTestimonials testimonials={testimonials} token={token} onRefresh={fetchAll} />
               )}
 
-              {/* ── REPORTS TAB ────────────────────────────────────── */}
-              {tab === 'reports' && (
-                <AdminReports admissions={admissions} courses={courses} users={users} />
+              {/* ── REVIEWS TAB ─────────────────────────────────────── */}
+              {tab === 'reviews' && (
+                <AdminReviews reviews={reviews} token={token} onRefresh={fetchAll} />
               )}
+
             </>
           )}
         </main>

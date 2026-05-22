@@ -262,8 +262,8 @@ const Home = () => {
                 </div>
                 <p className="text-slate-300 italic mb-6">"{item.quote}"</p>
                 <div className="flex items-center">
-                  <div className="w-12 h-12 rounded-full bg-slate-600 mr-4 overflow-hidden">
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                  <div className="w-12 h-12 rounded-full bg-slate-600 mr-4 flex items-center justify-center text-slate-300">
+                    <Users size={20} />
                   </div>
                   <div>
                     <h4 className="font-bold">{item.name}</h4>

@@ -22,22 +22,90 @@ const Contact = () => {
     return defaultData;
   });
 
+  const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Save changes to localStorage as user types
   useEffect(() => {
     localStorage.setItem('contact_form_data', JSON.stringify(formData));
   }, [formData]);
 
+  const validateField = (name, value) => {
+    let errorMsg = '';
+    
+    if (name === 'name') {
+      if (!value.trim()) errorMsg = 'Your name is required';
+      else if (value.trim().length < 3) errorMsg = 'Name must be at least 3 characters long';
+    }
+    
+    if (name === 'email') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!value) errorMsg = 'Email address is required';
+      else if (!emailRegex.test(value)) errorMsg = 'Please enter a valid email address';
+    }
+    
+    if (name === 'purpose' && !value) {
+      errorMsg = 'Please select a purpose for your inquiry';
+    }
+    
+    if (name === 'message') {
+      if (!value.trim()) errorMsg = 'Your message is required';
+      else if (value.trim().length < 10) errorMsg = 'Message must be at least 10 characters long';
+    }
+
+    setErrors(prev => ({ ...prev, [name]: errorMsg }));
+    return !errorMsg;
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    validateField(name, value);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validate all fields
+    let isValid = true;
+    Object.keys(formData).forEach(key => {
+      const fieldValid = validateField(key, formData[key]);
+      if (!fieldValid) isValid = false;
+    });
+
+    if (!isValid) return;
+
+    setIsSubmitting(true);
     try {
       await axios.post('/api/contact', formData);
       alert('Message sent successfully! Our team will get back to you soon.');
       setFormData({ name: '', email: '', purpose: '', message: '' });
+      setErrors({});
       localStorage.removeItem('contact_form_data');
     } catch (error) {
       console.error('Error sending message', error);
       alert('Failed to send message. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const getInputClass = (name) => {
+    const baseClass = "w-full px-4 py-3 rounded-lg border outline-none transition-all focus:ring-2 focus:ring-indigo-500/20";
+    if (errors[name]) {
+      return `${baseClass} border-red-400 focus:border-red-500 bg-red-50/10 focus:ring-red-200`;
+    }
+    if (formData[name] && !errors[name]) {
+      return `${baseClass} border-emerald-400 focus:border-emerald-500 focus:ring-emerald-100`;
+    }
+    return `${baseClass} border-slate-300 focus:border-indigo-500`;
   };
 
   return (
@@ -130,34 +198,44 @@ const Contact = () => {
           {/* Contact Form */}
           <div className="bg-white rounded-3xl p-8 md:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900 mb-6">Send us a Message</h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Your Name</label>
                 <input 
-                  type="text" required
-                  value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" 
+                  type="text" 
+                  name="name"
+                  value={formData.name} 
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  className={getInputClass('name')}
                   placeholder="John Doe" 
                 />
+                {errors.name && <p className="mt-1 text-xs font-semibold text-red-600">{errors.name}</p>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Email Address</label>
                 <input 
-                  type="email" required
-                  value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" 
+                  type="email" 
+                  name="email"
+                  value={formData.email} 
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  className={getInputClass('email')}
                   placeholder="john@example.com" 
                 />
+                {errors.email && <p className="mt-1 text-xs font-semibold text-red-600">{errors.email}</p>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Purpose of Inquiry</label>
                 <select 
-                  required
-                  value={formData.purpose} onChange={e => setFormData({...formData, purpose: e.target.value})}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+                  name="purpose"
+                  value={formData.purpose} 
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  className={getInputClass('purpose')}
                 >
                   <option value="" disabled>Select a purpose...</option>
                   <option value="course">Course Inquiry</option>
@@ -166,20 +244,29 @@ const Contact = () => {
                   <option value="support">Technical Support</option>
                   <option value="other">Other</option>
                 </select>
+                {errors.purpose && <p className="mt-1 text-xs font-semibold text-red-600">{errors.purpose}</p>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Your Message</label>
                 <textarea 
-                  required rows="4"
-                  value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none" 
+                  name="message"
+                  rows="4"
+                  value={formData.message} 
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  className={getInputClass('message')}
                   placeholder="How can we help you?"
                 ></textarea>
+                {errors.message && <p className="mt-1 text-xs font-semibold text-red-600">{errors.message}</p>}
               </div>
 
-              <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 flex justify-center items-center">
-                <Send size={18} className="mr-2" /> Send Message
+              <button 
+                type="submit" 
+                disabled={isSubmitting}
+                className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-750 transition-all shadow-lg shadow-indigo-200 flex justify-center items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send size={18} className="mr-2" /> {isSubmitting ? 'Sending...' : 'Send Message'}
               </button>
             </form>
           </div>

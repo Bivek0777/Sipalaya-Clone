@@ -14,7 +14,7 @@ function EsewaPaymentButton({ amount, productId, admissionId }) {
             amount,
             productId,
             successUrl: `${window.location.origin}/payment-success?courseId=${productId}&amount=${amount}&admissionId=${admissionId || ''}`,
-            failureUrl: `${window.location.origin}/payment-fail`
+            failureUrl: `${window.location.origin}/payment-fail?admissionId=${admissionId || ''}&courseId=${productId}`
           }),
         });
         const data = await res.json();

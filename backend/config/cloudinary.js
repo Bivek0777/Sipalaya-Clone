@@ -11,12 +11,12 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'sipalaya-it/resources',
+    folder: 'sipalaya-it/uploads',
     resource_type: 'auto', // Support images, PDFs, etc.
-    allowed_formats: ['jpg', 'png', 'pdf', 'docx', 'zip']
+    allowed_formats: ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx', 'zip']
   },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage: storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 module.exports = { cloudinary, upload };

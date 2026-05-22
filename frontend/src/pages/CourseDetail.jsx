@@ -15,6 +15,8 @@ const CourseDetail = () => {
   const [showDemoModal, setShowDemoModal] = useState(false);
   const [reviewText, setReviewText] = useState('');
   const [rating, setRating] = useState(5);
+  const [reviews, setReviews] = useState([]);
+  const [reviewStatus, setReviewStatus] = useState('');
 
   useEffect(() => {
     const fetchCourse = async () => {
@@ -27,7 +29,18 @@ const CourseDetail = () => {
         setLoading(false);
       }
     };
+
+    const fetchReviews = async () => {
+      try {
+        const response = await axios.get(`/api/reviews/course/${id}`);
+        setReviews(response.data);
+      } catch (error) {
+        console.error('Error fetching reviews:', error);
+      }
+    };
+
     fetchCourse();
+    fetchReviews();
   }, [id]);
 
   if (loading) return <div className="flex justify-center items-center h-screen">Loading...</div>;
@@ -68,7 +81,7 @@ const CourseDetail = () => {
             <div className="flex flex-wrap gap-4">
               {(!user || user.role === 'student') ? (
                 <>
-                  <Link to={`/admission?courseId=${course._id}&amount=${course.fee}`} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-lg">
+                  <Link to={`/admission?courseId=${course._id}&amount=${course.fee}${user && user.role === 'student' ? '&skipRegister=true' : ''}`} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-lg">
                     Enroll & Pay - Rs. {course.fee}
                   </Link>
                 </>
@@ -167,39 +180,80 @@ const CourseDetail = () => {
           <h2 className="text-2xl font-bold text-slate-900 mb-8">Student Reviews</h2>
           <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-3xl">
             <h3 className="text-lg font-bold text-slate-900 mb-4">Write a Review</h3>
-            <form onSubmit={async (e) => { 
-              e.preventDefault(); 
-              try {
-                await axios.post('http://localhost:5000/api/reviews', {
-                  courseId: course._id,
-                  studentName: 'Anonymous User', // In real app, get from Auth Context
-                  rating,
-                  reviewText
-                });
-                alert('Review submitted for moderation!'); 
-                setReviewText(''); 
-              } catch (error) {
-                alert('Failed to submit review.');
-              }
-            }}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Rating</label>
-                <div className="flex space-x-2">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <button key={star} type="button" onClick={() => setRating(star)} className={`${rating >= star ? 'text-amber-400' : 'text-slate-300'}`}>
-                      <Star size={24} className="fill-current" />
-                    </button>
-                  ))}
+            {user ? (
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setReviewStatus('');
+
+                if (!reviewText.trim()) {
+                  setReviewStatus('Please write your review before submitting.');
+                  return;
+                }
+
+                try {
+                  const response = await axios.post('/api/reviews', {
+                    courseId: course._id,
+                    studentName: user.name || 'Anonymous Student',
+                    rating,
+                    reviewText: reviewText.trim(),
+                  });
+
+                  const newReview = response.data?.data;
+                  if (newReview) {
+                    setReviews(prev => [newReview, ...prev]);
+                  }
+
+                  setReviewStatus('Review submitted successfully!');
+                  setReviewText('');
+                  setRating(5);
+                } catch (error) {
+                  console.error('Review submit error:', error);
+                  setReviewStatus('Failed to submit review. Please try again.');
+                }
+              }}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Rating</label>
+                  <div className="flex space-x-2">
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button key={star} type="button" onClick={() => setRating(star)} className={`${rating >= star ? 'text-amber-400' : 'text-slate-300'}`}>
+                        <Star size={24} className="fill-current" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Your Review</label>
+                  <textarea rows="4" value={reviewText} onChange={e => setReviewText(e.target.value)} className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none" placeholder="Share your experience..."></textarea>
+                </div>
+                {reviewStatus && <p className="mb-4 text-sm text-slate-700">{reviewStatus}</p>}
+                <button type="submit" className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex items-center">
+                  <MessageSquare size={18} className="mr-2" /> Submit Review
+                </button>
+              </form>
+            ) : (
+              <div className="rounded-xl border border-amber-100 bg-amber-50 p-6">
+                <p className="text-slate-700 mb-3">Please log in to submit a review.</p>
+                <button onClick={() => navigate('/login')} className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold">Log In</button>
               </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Your Review</label>
-                <textarea required rows="4" value={reviewText} onChange={e => setReviewText(e.target.value)} className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none" placeholder="Share your experience..."></textarea>
+            )}
+          </div>
+          <div className="mt-8 max-w-3xl space-y-4">
+            <h3 className="text-lg font-bold text-slate-900">Reviews</h3>
+            {reviews.length > 0 ? reviews.map(review => (
+              <div key={review._id} className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-3">
+                  <p className="font-semibold text-slate-900">{review.studentName}</p>
+                  <div className="flex items-center text-amber-400">
+                    {Array.from({ length: review.rating }).map((_, idx) => (
+                      <Star key={idx} size={16} className="fill-current" />
+                    ))}
+                  </div>
+                </div>
+                <p className="text-slate-700">{review.reviewText}</p>
               </div>
-              <button type="submit" className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex items-center">
-                <MessageSquare size={18} className="mr-2" /> Submit Review
-              </button>
-            </form>
+            )) : (
+              <p className="text-slate-600">No approved reviews yet. Be the first to share your experience!</p>
+            )}
           </div>
         </div>
       </div>

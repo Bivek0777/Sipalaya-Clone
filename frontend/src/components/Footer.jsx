@@ -9,7 +9,7 @@ const Footer = () => {
           <div className="lg:col-span-2">
             <h3 className="text-2xl font-bold mb-4 text-white">Sipalaya IT</h3>
             <p className="text-slate-400 mb-6 leading-relaxed">
-              Empowering the next generation of tech professionals with comprehensive IT training, certification preparation, and corporate workshops.
+              Empowering the next generation of tech professionals with comprehensive IT training, certification preparation, and career placement.
             </p>
             <div className="flex space-x-4">
               <a href="https://facebook.com" target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-indigo-600 transition-colors transform hover:-translate-y-1"><span className="text-xs font-bold text-white">FB</span></a>

@@ -1,5 +1,3 @@
-
-
 const axios = require('axios');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const crypto = require('crypto');
@@ -8,9 +6,10 @@ const User = require('../models/User');
 const Admission = require('../models/Admission');
 const Course = require('../models/Course');
 const { sendPaymentReceipt } = require('../services/emailService');
+const { generateInvoice } = require('../utils/invoice');
 
 /**
- * Helper to enroll user in course
+ * Helper to enroll user in course + auto-approve admission on payment
  */
 const enrollUser = async (userId, courseId, admissionId, paymentData) => {
   try {
@@ -21,16 +20,16 @@ const enrollUser = async (userId, courseId, admissionId, paymentData) => {
     }
 
     const alreadyEnrolled = user.enrolledCourses.find(c => c.course && c.course.toString() === courseId.toString());
-    
+
     if (!alreadyEnrolled) {
       user.enrolledCourses.push({ course: courseId, progress: 0, status: 'active' });
       await user.save();
-      
+
       // Fetch dynamic course title for receipt
       const course = await Course.findById(courseId);
       const courseTitle = course ? course.title : 'Your Enrolled Course';
-      
-      // Send receipt
+
+      // Send receipt email
       sendPaymentReceipt(user.email, {
         courseTitle,
         amount: paymentData.amount,
@@ -38,10 +37,15 @@ const enrollUser = async (userId, courseId, admissionId, paymentData) => {
         method: paymentData.method
       }).catch(err => console.error("Email fail:", err));
     }
-    
-    // If there's an admission record, approve it
+
+    // Auto-approve admission when payment is successful
     if (admissionId) {
-      await Admission.findByIdAndUpdate(admissionId, { status: 'approved' });
+      await Admission.findByIdAndUpdate(admissionId, {
+        status: 'approved',
+        paymentStatus: 'paid',
+        paymentTransactionId: paymentData.transactionId || null,
+        paidAt: new Date()
+      });
     }
     return true;
   } catch (err) {
@@ -50,23 +54,51 @@ const enrollUser = async (userId, courseId, admissionId, paymentData) => {
   }
 };
 
+/**
+ * Helper to mark admission as failed when payment fails
+ */
+const markAdmissionFailed = async (admissionId) => {
+  try {
+    if (admissionId) {
+      await Admission.findByIdAndUpdate(admissionId, {
+        paymentStatus: 'failed',
+        status: 'pending' // keep pending so admin can review
+      });
+    }
+  } catch (err) {
+    console.error("Mark admission failed error:", err);
+  }
+};
+
 // Record generic payment (Used by Khalti client-side or manual entries)
 exports.recordPayment = async (req, res) => {
   try {
     const { user, course, amount, method, status, transactionId, admissionId } = req.body;
-    
+
     if (!user || user === 'me') {
-       return res.status(400).json({ message: "User ID is required" });
+      return res.status(400).json({ message: "User ID is required" });
     }
 
     const payment = new Payment({ user, course, amount, method, status, transactionId });
     await payment.save();
 
+    let invoiceData = null;
     if (status === 'completed') {
       await enrollUser(user, course, admissionId, { amount, transactionId, method });
+      try {
+        invoiceData = await generateInvoice(payment);
+      } catch (invoiceError) {
+        console.error('Invoice generation failed:', invoiceError);
+      }
+    } else if (status === 'failed') {
+      await markAdmissionFailed(admissionId);
     }
 
-    res.status(201).json({ message: 'Payment recorded and enrollment updated', payment });
+    res.status(201).json({
+      message: 'Payment recorded and enrollment updated',
+      payment,
+      invoice: invoiceData,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -77,9 +109,9 @@ exports.initiateEsewaPayment = async (req, res) => {
   try {
     const { amount, productId, successUrl, failureUrl } = req.body;
     const transaction_uuid = `${productId}-${Date.now()}`;
-    const secretKey = process.env.ESEWA_SECRET_KEY || '8gBm/:&EnhH.1/q'; 
+    const secretKey = process.env.ESEWA_SECRET_KEY || '8gBm/:&EnhH.1/q';
     const productCode = process.env.ESEWA_PRODUCT_CODE || 'EPAYTEST';
-    
+
     const message = `total_amount=${amount},transaction_uuid=${transaction_uuid},product_code=${productCode}`;
     const signature = crypto.createHmac('sha256', secretKey).update(message).digest('base64');
 
@@ -96,7 +128,7 @@ exports.initiateEsewaPayment = async (req, res) => {
       signed_field_names: 'total_amount,transaction_uuid,product_code',
       signature: signature
     };
-    
+
     res.json({ gateway: 'esewa', payload });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -104,24 +136,16 @@ exports.initiateEsewaPayment = async (req, res) => {
 };
 
 exports.verifyEsewaPayment = async (req, res) => {
-  const { data } = req.body; 
+  const { data } = req.body;
   if (!data) return res.status(400).json({ success: false, message: 'No data provided' });
 
   try {
     const decodedStr = Buffer.from(data, 'base64').toString('utf-8');
     const decodedData = JSON.parse(decodedStr);
 
-    // In a real app, you'd also call eSewa API to verify the status server-to-server
-    // But for this project, checking the decoded status is the standard V2 flow.
-
     if (decodedData.status === 'COMPLETE') {
-      // Logic for recording and enrolling can happen here if we have user/course info
-      // Since eSewa doesn't send extra params back easily in V2 without encoding them in transaction_uuid,
-      // we'll rely on the frontend calling recordPayment after this success, OR
-      // we decode courseId from transaction_uuid if we put it there.
-      
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         transactionId: decodedData.transaction_code,
         amount: decodedData.total_amount,
         transaction_uuid: decodedData.transaction_uuid
@@ -138,7 +162,7 @@ exports.verifyEsewaPayment = async (req, res) => {
 exports.initiateKhaltiPayment = async (req, res) => {
   try {
     const { amount, productId, productName, successUrl } = req.body;
-    
+
     const response = await axios.post(
       "https://a.khalti.com/api/v2/epayment/initiate/",
       {
@@ -175,9 +199,9 @@ exports.verifyKhaltiPayment = async (req, res) => {
     );
 
     if (response.data.status === 'Completed') {
-       res.json({ success: true, data: response.data });
+      res.json({ success: true, data: response.data });
     } else {
-       res.status(400).json({ success: false, message: "Payment not completed", details: response.data });
+      res.status(400).json({ success: false, message: "Payment not completed", details: response.data });
     }
   } catch (error) {
     res.status(400).json({
@@ -196,9 +220,9 @@ exports.initiateStripePayment = async (req, res) => {
       line_items: [
         {
           price_data: {
-            currency: 'usd', 
+            currency: 'usd',
             product_data: { name: productId || 'Course Enrollment' },
-            unit_amount: amount * 100, 
+            unit_amount: amount * 100,
           },
           quantity: 1,
         },

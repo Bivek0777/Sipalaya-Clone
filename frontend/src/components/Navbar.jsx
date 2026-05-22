@@ -30,6 +30,7 @@ const Navbar = () => {
             <Link to="/admission" className={`font-medium ${isActive('/admission')}`}>Admission</Link>
             
             <Link to="/placement" className={`font-medium ${isActive('/placement')}`}>Placement</Link>
+
             <Link to="/blog" className={`font-medium ${isActive('/blog')}`}>Blog</Link>
             <Link to="/contact" className={`font-medium ${isActive('/contact')}`}>Contact</Link>
             
@@ -81,6 +82,7 @@ const Navbar = () => {
           <Link to="/about" onClick={toggleMenu} className="text-xl font-semibold text-slate-800">About Us</Link>
           <Link to="/admission" onClick={toggleMenu} className="text-xl font-semibold text-slate-800">Admission</Link>
           <Link to="/placement" onClick={toggleMenu} className="text-xl font-semibold text-slate-800">Placement</Link>
+
           <Link to="/blog" onClick={toggleMenu} className="text-xl font-semibold text-slate-800">Blog</Link>
           <Link to="/contact" onClick={toggleMenu} className="text-xl font-semibold text-slate-800">Contact</Link>
           

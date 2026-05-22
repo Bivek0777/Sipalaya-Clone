@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   // Users
   getAllUsers, getUser, createUser, updateUser, deleteUser, getAllInstructors,
+  assignCoursesToInstructor,
   // Courses
   getAllCourses, getCourse, createCourse, updateCourse, deleteCourse, approveCourse,
   // Admissions
@@ -30,6 +31,7 @@ router.get('/users/:id', adminAuth, getUser);
 router.put('/users/:id', adminAuth, updateUser);
 router.delete('/users/:id', adminAuth, deleteUser);
 router.get('/instructors', adminAuth, getAllInstructors);
+router.put('/instructors/:id/courses', adminAuth, assignCoursesToInstructor);
 
 // ─── Course Management ───────────────────────────────────────────────────────
 router.get('/courses', adminAuth, getAllCourses);

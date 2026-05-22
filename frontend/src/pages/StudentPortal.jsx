@@ -1,4 +1,4 @@
-import { Book, CheckCircle, Upload, Calendar, PieChart, Download } from 'lucide-react';
+import { Book, CheckCircle, Upload, Calendar, PieChart, Download, Eye, EyeOff, X } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import axios from 'axios';
@@ -10,12 +10,30 @@ const StudentPortal = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', email: '', password: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', password: '', phone: '', address: '' });
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [updateLoading, setUpdateLoading] = useState(false);
 
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
-  const [submitForm, setSubmitForm] = useState({ courseId: '', title: '', fileUrl: '' });
+  const [submitForm, setSubmitForm] = useState({ courseId: '', taskId: '', title: '', fileUrl: '' });
+  const [availableTasks, setAvailableTasks] = useState([]);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [assignedTasks, setAssignedTasks] = useState([]);
+
+  const fetchAllAssignedTasks = async (enrolledCourses) => {
+    try {
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      const validEnrollments = enrolledCourses.filter(enroll => enroll && (enroll.course?._id || enroll.course));
+      const tasksPromises = validEnrollments.map(enroll =>
+        axios.get(`/api/assignments/tasks/course/${enroll.course?._id || enroll.course}`, config)
+      );
+      const responses = await Promise.all(tasksPromises);
+      const allTasks = responses.flatMap(res => res.data);
+      setAssignedTasks(allTasks);
+    } catch (err) {
+      console.error("Failed to fetch assigned tasks", err);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -24,7 +42,16 @@ const StudentPortal = () => {
       };
       const res = await axios.get('/api/auth/profile', config);
       setProfile(res.data);
-      setEditForm({ name: res.data.name, email: res.data.email, password: '' });
+      setEditForm({
+        name: res.data.name,
+        email: res.data.email,
+        password: '',
+        phone: res.data.phone || '',
+        address: res.data.address || ''
+      });
+      if (res.data.enrolledCourses && res.data.enrolledCourses.length > 0) {
+        fetchAllAssignedTasks(res.data.enrolledCourses);
+      }
     } catch (err) {
       console.error("Failed to fetch profile", err);
     } finally {
@@ -45,6 +72,11 @@ const StudentPortal = () => {
   };
 
   const [assignments, setAssignments] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState('');
+
   const fetchAssignments = async () => {
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
@@ -62,6 +94,73 @@ const StudentPortal = () => {
       fetchAssignments();
     }
   }, [token]);
+
+  useEffect(() => {
+    if (submitForm.courseId) {
+      fetchCourseTasks(submitForm.courseId);
+    } else {
+      setAvailableTasks([]);
+    }
+  }, [submitForm.courseId]);
+
+  const fetchCourseTasks = async (courseId) => {
+    try {
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      const res = await axios.get(`/api/assignments/tasks/course/${courseId}`, config);
+      setAvailableTasks(res.data);
+    } catch (err) {
+      console.error("Failed to fetch course tasks", err);
+    }
+  };
+
+  const handleAssignmentFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/zip',
+      'image/png',
+      'image/jpeg'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setUploadError('Allowed file types: PDF, DOC, DOCX, ZIP, PNG, JPG');
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('Max file size is 20MB');
+      return;
+    }
+
+    setUploadError('');
+    setUploadLoading(true);
+    setSelectedFile(file);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const config = {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      };
+      const res = await axios.post('/api/assignments/upload', formData, config);
+      setSubmitForm({ ...submitForm, fileUrl: res.data.fileUrl });
+      setUploadedFileName(res.data.fileName || file.name);
+      alert('File uploaded successfully');
+    } catch (err) {
+      setUploadError(err.response?.data?.message || 'File upload failed');
+      setSelectedFile(null);
+      setUploadedFileName('');
+    } finally {
+      setUploadLoading(false);
+    }
+  };
 
   // ... (rest of the component)
 
@@ -95,6 +194,9 @@ const StudentPortal = () => {
 
       setIsEditModalOpen(false);
       alert('Profile updated successfully!');
+      if (updateUser) {
+        updateUser({ name: editForm.name, email: editForm.email, phone: editForm.phone, address: editForm.address });
+      }
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to update profile');
     } finally {
@@ -109,7 +211,7 @@ const StudentPortal = () => {
       const config = { headers: { Authorization: `Bearer ${token}` } };
       await axios.post('/api/assignments', submitForm, config);
       alert('Assignment submitted successfully!');
-      setSubmitForm({ courseId: '', title: '', fileUrl: '' });
+      setSubmitForm({ courseId: '', taskId: '', title: '', fileUrl: '' });
       setIsSubmitModalOpen(false);
       fetchAssignments();
     } catch (err) {
@@ -120,49 +222,75 @@ const StudentPortal = () => {
   };
 
   const generateCertificate = (courseName) => {
-    const doc = new jsPDF({
-      orientation: "landscape",
-      unit: "in",
-      format: "letter"
-    });
-
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'in', format: 'letter' });
     const studentName = profile?.name || user?.name || 'Student';
+    const W = 11, H = 8.5;
 
-    doc.setLineWidth(0.1);
-    doc.rect(0.5, 0.5, 10, 7.5);
-    doc.setLineWidth(0.02);
-    doc.rect(0.6, 0.6, 9.8, 7.3);
+    // Background
+    doc.setFillColor(248, 250, 252);
+    doc.rect(0, 0, W, H, 'F');
 
-    doc.setFont("times", "bold");
-    doc.setFontSize(40);
-    doc.setTextColor(33, 33, 33);
-    doc.text("Certificate of Completion", 5.5, 2, null, null, "center");
+    // Decorative border
+    doc.setDrawColor(79, 70, 229);
+    doc.setLineWidth(0.12);
+    doc.rect(0.4, 0.4, W - 0.8, H - 0.8);
+    doc.setLineWidth(0.03);
+    doc.rect(0.55, 0.55, W - 1.1, H - 1.1);
 
-    doc.setFont("times", "normal");
-    doc.setFontSize(20);
-    doc.text("This is to certify that", 5.5, 3, null, null, "center");
+    // Header band
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0.55, 0.55, W - 1.1, 1.4, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text('SIPALAYA INFO TECH', W / 2, 1.1, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('IT Training Institute · Koteshwor, Kathmandu, Nepal', W / 2, 1.5, { align: 'center' });
 
-    doc.setFont("times", "italic");
+    // Title
+    doc.setFont('times', 'bold');
+    doc.setFontSize(36);
+    doc.setTextColor(30, 41, 59);
+    doc.text('Certificate of Completion', W / 2, 2.8, { align: 'center' });
+
+    // Body
+    doc.setFont('times', 'normal');
+    doc.setFontSize(16);
+    doc.setTextColor(100, 116, 139);
+    doc.text('This is to certify that', W / 2, 3.5, { align: 'center' });
+
+    // Student name
+    doc.setFont('times', 'bolditalic');
     doc.setFontSize(30);
     doc.setTextColor(79, 70, 229);
-    doc.text(studentName, 5.5, 4, null, null, "center");
+    doc.text(studentName, W / 2, 4.3, { align: 'center' });
+    doc.setDrawColor(79, 70, 229);
+    doc.setLineWidth(0.02);
+    doc.line(W / 2 - 2.5, 4.45, W / 2 + 2.5, 4.45);
 
-    doc.setFont("times", "normal");
-    doc.setFontSize(20);
-    doc.setTextColor(33, 33, 33);
-    doc.text("has successfully completed the course", 5.5, 5, null, null, "center");
+    // Course info
+    doc.setFont('times', 'normal');
+    doc.setFontSize(16);
+    doc.setTextColor(100, 116, 139);
+    doc.text('has successfully completed the course', W / 2, 5.1, { align: 'center' });
+    doc.setFont('times', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(30, 41, 59);
+    doc.text(courseName, W / 2, 5.8, { align: 'center' });
 
-    doc.setFont("times", "bold");
-    doc.setFontSize(24);
-    doc.text(courseName, 5.5, 6, null, null, "center");
-
-    doc.setFont("times", "normal");
-    doc.setFontSize(14);
-    const date = new Date().toLocaleDateString();
-    doc.text(`Date: ${date}`, 2, 7);
-
-    doc.text("Director, Sipalaya IT", 8, 7);
-    doc.line(7.5, 6.8, 9.5, 6.8);
+    // Footer
+    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Issued on: ${date}`, 1.5, 7.2);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(79, 70, 229);
+    doc.text('Director, Sipalaya Info Tech', W - 1.5, 7.2, { align: 'right' });
+    doc.setDrawColor(79, 70, 229);
+    doc.line(W - 3.5, 7.05, W - 0.9, 7.05);
 
     doc.save(`Certificate_${courseName.replace(/\s+/g, '_')}.pdf`);
   };
@@ -176,6 +304,20 @@ const StudentPortal = () => {
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Welcome back, {profile?.name || user?.name || 'Student'}!</h1>
             <p className="text-slate-600 mt-1">Here is what's happening with your courses today.</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500 font-semibold">Email</p>
+                <p className="mt-2 text-sm text-slate-900">{profile?.email || user?.email || 'Not available'}</p>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500 font-semibold">Phone</p>
+                <p className="mt-2 text-sm text-slate-900">{profile?.phone || 'Not added yet'}</p>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm sm:col-span-2">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500 font-semibold">Address</p>
+                <p className="mt-2 text-sm text-slate-900">{profile?.address || 'Not added yet'}</p>
+              </div>
+            </div>
           </div>
           <div className="mt-4 md:mt-0 flex space-x-3">
             <button 
@@ -277,6 +419,61 @@ const StudentPortal = () => {
 
               </div>
             </div>
+
+            {/* Assigned Tasks / Learning Homework */}
+            {assignedTasks && assignedTasks.length > 0 && (
+              <div className="bg-gradient-to-r from-indigo-900/5 to-purple-900/5 border border-indigo-100 rounded-3xl p-6 mb-7 shadow-sm">
+                <div className="flex justify-between items-center mb-5">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 bg-indigo-655 bg-indigo-600 rounded-full animate-ping" />
+                      Assigned Homework Prompts
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Please review outstanding milestones posted by your instructors.</p>
+                  </div>
+                  <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xxs font-extrabold uppercase tracking-wide">
+                    {assignedTasks.length} Active Tasks
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {assignedTasks.map(task => (
+                    <div key={task._id} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start gap-2 mb-3">
+                          <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                            {task.courseId?.title || 'Course Homework'}
+                          </span>
+                          {task.deadline && (
+                            <span className="text-[10px] text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 shrink-0">
+                              Due: {new Date(task.deadline).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-bold text-slate-800 text-sm">{task.title}</h4>
+                        <p className="text-slate-500 text-xs mt-2 line-clamp-3 leading-relaxed">{task.description}</p>
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
+                        <span className="text-slate-400 text-[10px] font-medium">Max Score: {task.maxScore || 100} pts</span>
+                        <button
+                          onClick={() => {
+                            setSubmitForm({
+                              courseId: task.courseId?._id || task.courseId || '',
+                              taskId: task._id,
+                              title: task.title,
+                              fileUrl: ''
+                            });
+                            setIsSubmitModalOpen(true);
+                          }}
+                          className="text-xs text-indigo-600 hover:text-indigo-850 font-extrabold flex items-center gap-1 cursor-pointer bg-transparent border-0"
+                        >
+                          Submit Solution →
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Assignments */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -405,23 +602,81 @@ const StudentPortal = () => {
               )}
             </div>
 
-            {/* Certificates */}
+            {/* Certificates — dynamic for all enrolled courses */}
             <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-2xl p-6 text-white relative overflow-hidden">
               <div className="absolute top-0 right-0 opacity-10 mt-[-20px] mr-[-20px]">
                 <Book size={120} />
               </div>
-              <h2 className="text-xl font-bold mb-4 relative z-10">Certificates Earned</h2>
-              <div className="bg-white/10 backdrop-blur rounded-xl p-6 mb-4 border border-white/20 relative z-10 text-center">
-                <h3 className="font-bold mb-4 text-lg">Web Development Bootcamp</h3>
-                <p className="text-sm text-indigo-200 mb-6">Completed on {new Date().toLocaleDateString()}</p>
-                <button 
-                  onClick={() => generateCertificate("Web Development Bootcamp")}
-                  className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-400 rounded-lg text-sm font-bold shadow-lg transition-colors flex items-center mx-auto"
-                >
-                  <Download size={16} className="mr-2" /> Download PDF
-                </button>
+              <h2 className="text-xl font-bold mb-1 relative z-10">Certificates</h2>
+              <p className="text-xs text-indigo-300 mb-4 relative z-10">Unlock at 80% progress</p>
+              <div className="space-y-3 relative z-10">
+                {profile?.enrolledCourses?.length > 0 ? profile.enrolledCourses.map((enroll, idx) => {
+                  const title = enroll.course?.title || 'Course';
+                  const progress = enroll.progress || 0;
+                  const unlocked = progress >= 80;
+                  return (
+                    <div key={idx} className="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20">
+                      <p className="font-semibold text-sm mb-1 truncate">{title}</p>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-400 rounded-full" style={{width:`${progress}%`}} />
+                        </div>
+                        <span className="text-xs text-indigo-200 flex-shrink-0">{progress}%</span>
+                      </div>
+                      {unlocked ? (
+                        <button
+                          onClick={() => generateCertificate(title)}
+                          className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-400 rounded-lg text-xs font-bold shadow transition-colors flex items-center justify-center gap-1"
+                        >
+                          <Download size={13} /> Download Certificate
+                        </button>
+                      ) : (
+                        <div className="text-center text-xs text-indigo-300 py-1">
+                          🔒 Complete {80 - progress}% more to unlock
+                        </div>
+                      )}
+                    </div>
+                  );
+                }) : (
+                  <p className="text-sm text-indigo-300 text-center py-4">Enroll in a course to earn certificates.</p>
+                )}
               </div>
             </div>
+
+            {/* Mini Assignment Deadline Calendar */}
+            {assignedTasks.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                  <Calendar size={18} className="text-indigo-600" /> Upcoming Deadlines
+                </h2>
+                <div className="space-y-3">
+                  {assignedTasks
+                    .filter(t => t.deadline)
+                    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
+                    .slice(0, 5)
+                    .map(task => {
+                      const due = new Date(task.deadline);
+                      const today = new Date();
+                      const daysLeft = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+                      const urgent = daysLeft <= 3;
+                      return (
+                        <div key={task._id} className={`flex items-start gap-3 p-3 rounded-xl border ${urgent ? 'bg-rose-50 border-rose-100' : 'bg-slate-50 border-slate-100'}`}>
+                          <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex flex-col items-center justify-center text-white text-xs font-bold ${urgent ? 'bg-rose-500' : 'bg-indigo-500'}`}>
+                            <span>{due.getDate()}</span>
+                            <span className="text-[9px] opacity-80">{due.toLocaleString('default',{month:'short'})}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">{task.title}</p>
+                            <p className={`text-xs mt-0.5 font-medium ${urgent ? 'text-rose-600' : 'text-slate-500'}`}>
+                              {daysLeft < 0 ? 'Overdue' : daysLeft === 0 ? 'Due today!' : `${daysLeft} day${daysLeft > 1 ? 's' : ''} left`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
 
           </div>
         </div>
@@ -459,14 +714,45 @@ const StudentPortal = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">New Password (leave blank to keep current)</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Phone Number</label>
                 <input
-                  type="password"
+                  type="tel"
+                  required
                   className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={editForm.password}
-                  onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
-                  placeholder="••••••••"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  placeholder="+977 98XXXXXXXX"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Address</label>
+                <textarea
+                  required
+                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={editForm.address}
+                  onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                  placeholder="Street address, city, district"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">New Password (leave blank to keep current)</label>
+                <div className="relative">
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    className="w-full px-4 py-2 pr-10 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={editForm.password}
+                    onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
@@ -514,27 +800,79 @@ const StudentPortal = () => {
                   ))}
                 </select>
               </div>
+              {submitForm.courseId && availableTasks.length > 0 ? (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Select Assigned Homework *</label>
+                  <select
+                    required
+                    value={submitForm.taskId}
+                    onChange={(e) => {
+                      const taskId = e.target.value;
+                      const selectedTask = availableTasks.find(t => t._id === taskId);
+                      setSubmitForm({
+                        ...submitForm,
+                        taskId,
+                        title: selectedTask ? selectedTask.title : ''
+                      });
+                    }}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+                  >
+                    <option value="">-- Choose Homework Prompt --</option>
+                    {availableTasks.map(task => (
+                      <option key={task._id} value={task._id}>
+                        {task.title} ({task.maxScore} pts)
+                      </option>
+                    ))}
+                  </select>
+                  
+                  {submitForm.taskId && (
+                    <div className="mt-2 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                      <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Task guidelines</span>
+                      <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                        {availableTasks.find(t => t._id === submitForm.taskId)?.description}
+                      </p>
+                      {availableTasks.find(t => t._id === submitForm.taskId)?.deadline && (
+                        <p className="text-[10px] text-rose-500 font-semibold mt-2">
+                          Due Date: {new Date(availableTasks.find(t => t._id === submitForm.taskId).deadline).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Task Title / Homework Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Redux Toolkit Exercise"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                    value={submitForm.title}
+                    onChange={(e) => setSubmitForm({ ...submitForm, title: e.target.value, taskId: '' })}
+                  />
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Task Title / Homework Name *</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Upload Assignment File *</label>
                 <input
-                  type="text"
+                  type="file"
                   required
-                  placeholder="e.g. Redux Toolkit Exercise"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                  value={submitForm.title}
-                  onChange={(e) => setSubmitForm({ ...submitForm, title: e.target.value })}
+                  accept=".pdf,.doc,.docx,.zip,.png,.jpg,.jpeg"
+                  className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700"
+                  onChange={handleAssignmentFileUpload}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Submission File Link / URL *</label>
-                <input
-                  type="url"
-                  required
-                  placeholder="e.g. https://github.com/yourusername/repo"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                  value={submitForm.fileUrl}
-                  onChange={(e) => setSubmitForm({ ...submitForm, fileUrl: e.target.value })}
-                />
+                {uploadError && <p className="text-xs text-rose-500 mt-2">{uploadError}</p>}
+                {uploadedFileName && !uploadLoading && (
+                  <div className="mt-3 text-xs text-slate-600">
+                    Uploaded: <span className="font-semibold text-slate-800">{uploadedFileName}</span>
+                  </div>
+                )}
+                {uploadLoading && (
+                  <div className="mt-3 text-xs text-slate-500">Uploading file…</div>
+                )}
+                {submitForm.fileUrl && !uploadLoading && (
+                  <a href={submitForm.fileUrl} target="_blank" rel="noreferrer" className="mt-2 block text-xs text-indigo-600 hover:underline">Open uploaded file</a>
+                )}
               </div>
               <div className="flex gap-3 pt-4">
                 <button

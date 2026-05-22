@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const path = require('path');
 
 const app = express();
 // Middleware
@@ -25,10 +26,12 @@ const contactRoutes = require("./routes/contactRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
 
 const paymentRoutes = require("./routes/paymentRoutes");
+const invoiceRoutes = require("./routes/invoiceRoutes");
 const assignmentRoutes = require("./routes/assignmentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const resourceRoutes = require("./routes/resourceRoutes");
 const attendanceRoutes = require("./routes/attendanceRoutes");
+const instructorRoutes = require("./routes/instructorRoutes");
 
 app.use("/api/courses", courseRoutes);
 app.use("/api/auth", authRoutes);
@@ -41,10 +44,14 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/testimonials", testimonialRoutes);
 
 app.use("/api/payments", paymentRoutes);
+app.use("/api/invoices", invoiceRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/resources", resourceRoutes);
 app.use("/api/attendance", attendanceRoutes);
+app.use("/api/instructor", instructorRoutes);
+
+app.use('/api/invoices/files', express.static(path.join(__dirname, 'invoices')));
 
 app.get("/", (req, res) => {
   res.send("Sipalaya IT Training API is running");

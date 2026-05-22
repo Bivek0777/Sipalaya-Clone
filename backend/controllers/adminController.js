@@ -31,16 +31,25 @@ exports.getUser = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Name, email and password are required' });
+    const { name, email, password, phone, address, role, courseIds = [] } = req.body;
+    if (!name || !email || !password || !phone || !address) {
+      return res.status(400).json({ message: 'Name, email, password, phone and address are required' });
     }
-    const exists = await User.findOne({ email });
+    const exists = await User.findOne({ email: email.toLowerCase().trim() });
     if (exists) return res.status(400).json({ message: 'Email already registered' });
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ name, email, password: hashed, role: role || 'student' });
+    const user = new User({ name, email: email.toLowerCase().trim(), password: hashed, phone, address, role: role || 'student' });
     await user.save();
+
+    // Assign courses if instructor
+    if (role === 'instructor' && Array.isArray(courseIds) && courseIds.length > 0) {
+      await Course.updateMany(
+        { _id: { $in: courseIds } },
+        { instructorId: user._id, instructor: name }
+      );
+    }
+
     const userObj = user.toObject();
     delete userObj.password;
     res.status(201).json(userObj);
@@ -51,15 +60,40 @@ exports.createUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
-    const { name, email, role, password } = req.body;
+    const { name, email, phone, address, role, password, courseIds = [] } = req.body;
     const updateData = {};
     if (name) updateData.name = name;
-    if (email) updateData.email = email;
+    if (email) updateData.email = email.toLowerCase().trim();
+    if (phone) updateData.phone = phone;
+    if (address) updateData.address = address;
     if (role) updateData.role = role;
     if (password) updateData.password = await bcrypt.hash(password, 10);
 
     const user = await User.findByIdAndUpdate(req.params.id, updateData, { new: true }).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Remove instructor from all courses if role changed or courseIds provided
+    if (role === 'instructor') {
+      // Remove instructor from courses not in courseIds
+      await Course.updateMany(
+        { instructorId: user._id, _id: { $nin: courseIds } },
+        { $unset: { instructorId: '', instructor: '' } }
+      );
+      // Assign instructor to selected courses
+      if (Array.isArray(courseIds) && courseIds.length > 0) {
+        await Course.updateMany(
+          { _id: { $in: courseIds } },
+          { instructorId: user._id, instructor: name || user.name }
+        );
+      }
+    } else {
+      // If not instructor, remove from all courses
+      await Course.updateMany(
+        { instructorId: user._id },
+        { $unset: { instructorId: '', instructor: '' } }
+      );
+    }
+
     res.json(user);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -78,8 +112,49 @@ exports.deleteUser = async (req, res) => {
 
 exports.getAllInstructors = async (req, res) => {
   try {
-    const instructors = await User.find({ role: 'instructor' }).select('-password');
-    res.json(instructors);
+    const instructors = await User.find({ role: 'instructor' }).select('-password').sort({ createdAt: -1 });
+    const instructorIds = instructors.map(i => i._id);
+    const assignedCourses = await Course.find({ instructorId: { $in: instructorIds } })
+      .select('title category level instructorId');
+
+    const result = instructors.map(inst => ({
+      ...inst.toObject(),
+      assignedCourses: assignedCourses.filter(c =>
+        c.instructorId && c.instructorId.toString() === inst._id.toString()
+      )
+    }));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.assignCoursesToInstructor = async (req, res) => {
+  try {
+    const { courseIds = [] } = req.body;
+    const instructorId = req.params.id;
+
+    const instructor = await User.findById(instructorId);
+    if (!instructor || instructor.role !== 'instructor') {
+      return res.status(404).json({ message: 'Instructor not found' });
+    }
+
+    // Remove instructor from courses that are no longer assigned
+    await Course.updateMany(
+      { instructorId, _id: { $nin: courseIds } },
+      { $unset: { instructorId: '', instructor: '' } }
+    );
+
+    // Assign instructor to newly selected courses
+    if (Array.isArray(courseIds) && courseIds.length > 0) {
+      await Course.updateMany(
+        { _id: { $in: courseIds } },
+        { instructorId: instructor._id, instructor: instructor.name }
+      );
+    }
+
+    res.json({ message: 'Courses assigned successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -112,10 +187,21 @@ exports.createCourse = async (req, res) => {
     if (!title || !category || !level || !duration || !fee || !instructor || !description) {
       return res.status(400).json({ message: 'Missing required course fields' });
     }
+
+    let resolvedInstructorId = req.body.instructorId;
+    if (!resolvedInstructorId && instructor) {
+      const User = require('../models/User');
+      const instUser = await User.findOne({ name: new RegExp(`^${instructor.trim()}$`, 'i'), role: 'instructor' });
+      if (instUser) {
+        resolvedInstructorId = instUser._id;
+      }
+    }
+
     const course = new Course({
       title, category, level, duration,
       fee: Number(fee),
       instructor,
+      instructorId: resolvedInstructorId,
       image: image || 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=600&q=80',
       description, prerequisites,
       syllabus: Array.isArray(syllabus) ? syllabus : (syllabus ? syllabus.split('\n').filter(s => s.trim()) : []),
@@ -135,6 +221,15 @@ exports.updateCourse = async (req, res) => {
     if (updateData.syllabus && typeof updateData.syllabus === 'string') {
       updateData.syllabus = updateData.syllabus.split('\n').filter(s => s.trim());
     }
+
+    if (updateData.instructor && !updateData.instructorId) {
+      const User = require('../models/User');
+      const instUser = await User.findOne({ name: new RegExp(`^${updateData.instructor.trim()}$`, 'i'), role: 'instructor' });
+      if (instUser) {
+        updateData.instructorId = instUser._id;
+      }
+    }
+
     const course = await Course.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!course) return res.status(404).json({ message: 'Course not found' });
     res.json(course);
@@ -187,6 +282,17 @@ exports.getAdmission = async (req, res) => {
 
 exports.createAdmission = async (req, res) => {
   try {
+    const { email, course } = req.body;
+    if (email && course) {
+      const User = require('../models/User');
+      const existingUser = await User.findOne({ email: new RegExp(`^${email.trim()}$`, 'i') });
+      if (existingUser) {
+        const alreadyEnrolled = existingUser.enrolledCourses.find(c => c.course && c.course.toString() === course.toString());
+        if (alreadyEnrolled) {
+          return res.status(400).json({ message: 'User is already enrolled in this course.' });
+        }
+      }
+    }
     const admission = new Admission(req.body);
     await admission.save();
     res.status(201).json(admission);
@@ -248,9 +354,63 @@ exports.getAllPayments = async (req, res) => {
 
 exports.getFinancialReport = async (req, res) => {
   try {
-    const payments = await Payment.find({ status: 'completed' });
+    const payments = await Payment.find({ status: 'completed' })
+      .populate('course', 'title')
+      .populate('user', 'name email');
+
     const total = payments.reduce((sum, p) => sum + p.amount, 0);
-    res.json({ total, count: payments.length, payments });
+    const count = payments.length;
+
+    const gatewayBreakdown = payments.reduce((acc, payment) => {
+      const method = payment.method || 'Unknown';
+      acc[method] = acc[method] || { count: 0, total: 0 };
+      acc[method].count += 1;
+      acc[method].total += payment.amount;
+      return acc;
+    }, {});
+
+    const lastSixMonths = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - (5 - index));
+      return {
+        label: date.toLocaleString('default', { month: 'short' }),
+        year: date.getFullYear(),
+        month: date.getMonth(),
+        revenue: 0,
+        count: 0
+      };
+    });
+
+    payments.forEach(payment => {
+      const created = new Date(payment.createdAt || payment.updatedAt || Date.now());
+      const monthIndex = lastSixMonths.findIndex(m => m.month === created.getMonth() && m.year === created.getFullYear());
+      if (monthIndex >= 0) {
+        lastSixMonths[monthIndex].revenue += payment.amount;
+        lastSixMonths[monthIndex].count += 1;
+      }
+    });
+
+    const courseRevenue = payments.reduce((acc, payment) => {
+      const courseTitle = payment.course?.title || 'Unknown course';
+      acc[courseTitle] = acc[courseTitle] || { count: 0, total: 0 };
+      acc[courseTitle].count += 1;
+      acc[courseTitle].total += payment.amount;
+      return acc;
+    }, {});
+
+    const courseRevenueList = Object.entries(courseRevenue)
+      .map(([course, data]) => ({ course, ...data }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
+
+    res.json({
+      total,
+      count,
+      payments,
+      gatewayBreakdown,
+      monthlyRevenue: lastSixMonths,
+      courseRevenue: courseRevenueList
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

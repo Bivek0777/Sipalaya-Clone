@@ -27,7 +27,11 @@ router.get('/:id', async (req, res) => {
 // Create course (Instructor/Admin)
 router.post('/', protect, authorize('instructor', 'admin'), async (req, res) => {
   try {
-    const newCourse = new Course(req.body);
+    const newCourse = new Course({
+      ...req.body,
+      instructorId: req.user.id,
+      instructor: req.body.instructor || req.user.name || 'Instructor'
+    });
     const saved = await newCourse.save();
     res.status(201).json(saved);
   } catch (error) {
@@ -38,6 +42,14 @@ router.post('/', protect, authorize('instructor', 'admin'), async (req, res) => 
 // Update course (Instructor/Admin)
 router.put('/:id', protect, authorize('instructor', 'admin'), async (req, res) => {
   try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: 'Course not found' });
+
+    // Instructors can only update their own courses
+    if (req.user.role === 'instructor' && course.instructorId?.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to update this coure' });
+    }
+
     const updateData = { ...req.body };
     if (updateData.fee !== undefined) {
       updateData.fee = Number(updateData.fee);
@@ -49,9 +61,17 @@ router.put('/:id', protect, authorize('instructor', 'admin'), async (req, res) =
   }
 });
 
-// Delete course (Admin only)
-router.delete('/:id', protect, authorize('admin'), async (req, res) => {
+// Delete course (Instructor who owns it, or Admin)
+router.delete('/:id', protect, authorize('instructor', 'admin'), async (req, res) => {
   try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: 'Course not found' });
+
+    // Instructors can only delete their own courses
+    if (req.user.role === 'instructor' && course.instructorId?.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to delete this course' });
+    }
+
     await Course.findByIdAndDelete(req.params.id);
     res.json({ message: 'Course deleted' });
   } catch (error) {
