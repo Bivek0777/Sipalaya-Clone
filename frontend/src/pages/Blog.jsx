@@ -13,7 +13,7 @@ const Blog = () => {
     const fetchPosts = async () => {
       try {
         const res = await axios.get('/api/blogs');
-        setPosts(res.data);
+        setPosts(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         console.error('Error fetching blogs', err);
       } finally {

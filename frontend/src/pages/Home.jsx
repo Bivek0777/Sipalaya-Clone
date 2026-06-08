@@ -28,8 +28,9 @@ const Home = () => {
           axios.get('/api/courses'),
           axios.get('/api/testimonials')
         ]);
-        setFeaturedCourses(courseRes.data.slice(0, 6));
-        setTestimonials(testRes.data);
+        const courses = Array.isArray(courseRes.data) ? courseRes.data : [];
+        setFeaturedCourses(courses.slice(0, 6));
+        setTestimonials(Array.isArray(testRes.data) ? testRes.data : []);
       } catch (err) {
         console.error('Failed to fetch home data', err);
       }

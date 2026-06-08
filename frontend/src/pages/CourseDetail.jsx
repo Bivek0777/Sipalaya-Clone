@@ -33,7 +33,7 @@ const CourseDetail = () => {
     const fetchReviews = async () => {
       try {
         const response = await axios.get(`/api/reviews/course/${id}`);
-        setReviews(response.data);
+        setReviews(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
         console.error('Error fetching reviews:', error);
       }
@@ -125,7 +125,7 @@ const CourseDetail = () => {
             <section>
               <h2 className="text-2xl font-bold text-slate-900 mb-6">Course Syllabus</h2>
               <div className="space-y-4">
-                {course.syllabus && course.syllabus.length > 0 ? (
+                {Array.isArray(course.syllabus) && course.syllabus.length > 0 ? (
                   course.syllabus.map((item, index) => (
                     <div key={index} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center">
                       <div className="w-10 h-10 bg-indigo-50 text-indigo-700 rounded-lg flex items-center justify-center font-bold mr-4 flex-shrink-0">

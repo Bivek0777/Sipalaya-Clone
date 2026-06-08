@@ -29,11 +29,12 @@ const Courses = () => {
     const fetchCourses = async () => {
       try {
         const response = await axios.get('/api/courses');
-        if (response.data.length === 0) {
+        const data = Array.isArray(response.data) ? response.data : [];
+        if (data.length === 0) {
           const seedRes = await axios.post('/api/courses/seed');
-          setCoursesData(seedRes.data);
+          setCoursesData(Array.isArray(seedRes.data) ? seedRes.data : []);
         } else {
-          setCoursesData(response.data);
+          setCoursesData(data);
         }
       } catch (error) {
         console.error('Error fetching courses:', error);
