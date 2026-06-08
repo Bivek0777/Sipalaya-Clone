@@ -57,17 +57,29 @@ app.get("/", (req, res) => {
   res.send("Sipalaya IT Training API is running");
 });
 
-// Database connection
+// Database connection and server startup
 const PORT = process.env.PORT || 5000;
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log("Connected to MongoDB");
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on http://0.0.0.0:${PORT}`);
+
+// Start server first so it binds to the port immediately and stays active
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
+
+// Use the standard env variable name MONGODB_URI (or fallback to MONGO_URI for legacy)
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+if (!mongoUri) {
+  console.error("❌ Critical: No MongoDB connection string found. Define MONGODB_URI in your .env file.");
+  // Exit the process after a short delay to allow the server to start logs
+  setTimeout(() => process.exit(1), 1000);
+} else {
+  console.log('🔗 Connecting to MongoDB...');
+  mongoose
+    .connect(mongoUri)
+    .then(() => console.log('✅ Connected to MongoDB'))
+    .catch(err => {
+      console.error('❌ MongoDB connection error:', err.message || err);
+      setTimeout(() => process.exit(1), 1000);
     });
-  })
-  .catch((err) => {
-    console.error("MongoDB connection error:", err);
-  });
+}
+
 module.exports = app;

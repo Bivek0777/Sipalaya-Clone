@@ -79,6 +79,9 @@ const setupTransporter = async () => {
   }
 
   if (!hasSmtpCredentials) {
+    // No SMTP credentials found in .env. Using console logger for emails.
+    /* 
+    // Skipped Ethereal creation to avoid the log message and network delay
     try {
       const testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
@@ -92,11 +95,12 @@ const setupTransporter = async () => {
       });
       usingEthereal = true;
       emailStatus.usingEthereal = true;
-      console.log('Ethereal email account created for local testing.');
+      // console.log('Ethereal email account created for local testing.');
       return;
     } catch (err) {
       console.warn('No valid email transporter configured and Ethereal creation failed. Falling back to console logger.');
     }
+    */
   }
 
   fallbackToConsole = true;
