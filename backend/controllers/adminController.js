@@ -32,14 +32,21 @@ exports.getUser = async (req, res) => {
 exports.createUser = async (req, res) => {
   try {
     const { name, email, password, phone, address, role, courseIds = [] } = req.body;
-    if (!name || !email || !password || !phone || !address) {
-      return res.status(400).json({ message: 'Name, email, password, phone and address are required' });
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
     }
     const exists = await User.findOne({ email: email.toLowerCase().trim() });
     if (exists) return res.status(400).json({ message: 'Email already registered' });
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ name, email: email.toLowerCase().trim(), password: hashed, phone, address, role: role || 'student' });
+    const user = new User({
+      name,
+      email: email.toLowerCase().trim(),
+      password: hashed,
+      phone: phone || 'N/A',
+      address: address || 'Not provided',
+      role: role || 'student'
+    });
     await user.save();
 
     // Assign courses if instructor

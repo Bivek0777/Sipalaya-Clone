@@ -74,6 +74,8 @@ export default function AdminInstructors({ token, courses = [], onRefresh }) {
       name: inst.name,
       email: inst.email,
       password: '',
+      phone: inst.phone || '',
+      address: inst.address || '',
       courseIds: (inst.assignedCourses || []).map(c => c._id)
     });
     setErr('');
@@ -94,7 +96,14 @@ export default function AdminInstructors({ token, courses = [], onRefresh }) {
     try {
       const cfg = { headers: { Authorization: `Bearer ${token}` } };
       if (editing) {
-        const payload = { name: form.name, email: form.email, role: 'instructor', courseIds: form.courseIds };
+        const payload = {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          address: form.address,
+          role: 'instructor',
+          courseIds: form.courseIds
+        };
         if (form.password) payload.password = form.password;
         await axios.put(`${API}/users/${editing._id}`, payload, cfg);
         toast.success('Instructor updated!');
@@ -392,6 +401,27 @@ export default function AdminInstructors({ token, courses = [], onRefresh }) {
                     </button>
                   </div>
                 </div>
+
+                {editing && (
+                  <>
+                    {/* Phone */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone Number</label>
+                      <input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}
+                        placeholder="+977 98XXXXXXXX"
+                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                    </div>
+
+                    {/* Address */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Address</label>
+                      <textarea value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}
+                        placeholder="Street address, city, district"
+                        rows={3}
+                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                    </div>
+                  </>
+                )}
 
                 {/* Course multi-select */}
                 <div>
